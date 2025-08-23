@@ -1,0 +1,11 @@
+This angular application should be using bootstrap and atomic css.
+The amount of custom css needs to be minimized to the extent possible.
+The typescript code and in general the code should be easy to understand and maintain.
+The code should have proper logging and comments.
+Use ngrx based state-management wherver it is required. ue it spraingly for absolutely necessary use cases.
+Organize code into feature modules and shared modules.
+Use lazy loading for large modules to improve performance.
+Keep components small and focused on a single responsibility.
+Avoid directly manipulating the DOM; use Renderer2.
+Use HttpClient interceptors for auth tokens and error handling.
+Dont run any commands on your own. Give me those commands and I will run them on my own in the terminal.

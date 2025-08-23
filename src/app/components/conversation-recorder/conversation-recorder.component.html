@@ -1,0 +1,250 @@
+<div class="container mt-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+          <h3 class="mb-0">
+            <i class="bi bi-mic-fill me-2"></i>
+            Conversation Recorder
+          </h3>
+        </div>
+        
+        <div class="card-body">
+          <!-- Status Display -->
+          <div class="row mb-4">
+            <div class="col-12">
+              <!-- Recording Indicator -->
+              <div class="text-center mb-3" *ngIf="recordingStatus.isRecording">
+                <div class="alert alert-danger d-inline-flex align-items-center px-4 py-2" role="alert">
+                  <i class="bi bi-record-circle-fill recording-active me-2 fs-4"></i>
+                  <span class="fw-bold">LIVE RECORDING</span>
+                </div>
+              </div>
+              
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h5 class="mb-1">Recording Status</h5>
+                  <p class="mb-0" [ngClass]="getStatusClass()">
+                    <i class="bi" [ngClass]="recordingStatus.isRecording ? 'bi-record-circle-fill recording-active' : 'bi-record-circle'"></i>
+                    {{ recordingStatus.isRecording ? 'Recording Active' : 'Not Recording' }}
+                  </p>
+                </div>
+                
+                <div class="text-end">
+                  <h5 class="mb-1">Duration</h5>
+                  <p class="mb-0 fs-4 fw-bold" [ngClass]="getStatusClass()">
+                    {{ formatDuration(recordingStatus.currentDuration) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Segment Information -->
+          <div class="row mb-3">
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="mb-1">Audio Segments</h6>
+                  <p class="mb-0 text-muted">
+                    <i class="bi bi-file-earmark-music me-1"></i>
+                    {{ recordingStatus.totalSegments }} segments sent
+                  </p>
+                </div>
+                
+                <div class="text-end" *ngIf="recordingStatus.lastSegmentSent">
+                  <h6 class="mb-1">Last Segment</h6>
+                  <p class="mb-0 text-muted small">
+                    {{ recordingStatus.lastSegmentSent | date:'HH:mm:ss' }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Processing Status -->
+          <div class="row mb-4" *ngIf="recordingStatus.isProcessing">
+            <div class="col-12">
+              <div class="alert alert-warning d-flex align-items-center" role="alert">
+                <i class="bi bi-arrow-clockwise me-2"></i>
+                <div>
+                  <strong>Processing Audio Segment</strong>
+                  <br>
+                  <small>Sending 10-second audio segment to backend...</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Control Button -->
+          <div class="row mb-4">
+            <div class="col-12 text-center">
+              <button 
+                type="button" 
+                class="btn btn-lg px-5 py-3" 
+                [ngClass]="getButtonClass()"
+                (click)="recordingStatus.isRecording ? stopRecording() : startRecording()"
+                [disabled]="recordingStatus.isProcessing">
+                
+                <i class="bi me-2" [ngClass]="getButtonIcon()"></i>
+                {{ getButtonText() }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Current Suggestion Display -->
+          <div class="row mb-4" *ngIf="currentSuggestion">
+            <div class="col-12">
+              <div class="card border-success">
+                <div class="card-header bg-success text-white">
+                  <h6 class="mb-0">
+                    <i class="bi bi-lightbulb-fill me-2"></i>
+                    Latest Suggestion
+                    <span class="badge bg-light text-success ms-2" *ngIf="isAutoFetchingSuggestions">
+                      <i class="bi bi-arrow-clockwise"></i> Live
+                    </span>
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <p class="card-text fs-5 mb-2">{{ currentSuggestion.text }}</p>
+                  <small class="text-muted">
+                    <i class="bi bi-clock me-1"></i>
+                    {{ formatTimestamp(currentSuggestion.timestamp) }}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Previous Suggestions Accordion -->
+          <div class="row mb-4" *ngIf="previousSuggestions.length > 0">
+            <div class="col-12">
+              <div class="accordion" id="previousSuggestionsAccordion">
+                <div class="accordion-item">
+                  <h2 class="accordion-header" id="previousSuggestionsHeader">
+                    <button 
+                      class="accordion-button collapsed" 
+                      type="button" 
+                      data-bs-toggle="collapse" 
+                      data-bs-target="#previousSuggestionsCollapse" 
+                      aria-expanded="false" 
+                      aria-controls="previousSuggestionsCollapse"
+                      (click)="togglePreviousSuggestions()">
+                      <i class="bi bi-clock-history me-2"></i>
+                      Previous Suggestions ({{ previousSuggestions.length }})
+                    </button>
+                  </h2>
+                  <div 
+                    id="previousSuggestionsCollapse" 
+                    class="accordion-collapse collapse" 
+                    aria-labelledby="previousSuggestionsHeader" 
+                    data-bs-parent="#previousSuggestionsAccordion">
+                    <div class="accordion-body">
+                      <div class="list-group list-group-flush">
+                        <div 
+                          class="list-group-item" 
+                          *ngFor="let suggestion of previousSuggestions; let i = index">
+                          <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                              <p class="mb-1">{{ suggestion.text }}</p>
+                              <small class="text-muted">
+                                <i class="bi bi-clock me-1"></i>
+                                {{ formatTimestamp(suggestion.timestamp) }}
+                              </small>
+                            </div>
+                            <span class="badge bg-secondary ms-2">#{{ previousSuggestions.length - i }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Suggestion Status -->
+          <div class="row mb-4" *ngIf="recordingStatus.isRecording">
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="mb-1">Suggestion Status</h6>
+                  <p class="mb-0" [ngClass]="getSuggestionStatusClass()">
+                    <i class="bi" [ngClass]="isAutoFetchingSuggestions ? 'bi-arrow-clockwise' : 'bi-pause-circle'"></i>
+                    {{ isAutoFetchingSuggestions ? 'Auto-fetching suggestions' : 'Suggestions paused' }}
+                  </p>
+                </div>
+                
+                <div class="text-end">
+                  <h6 class="mb-1">Total Suggestions</h6>
+                  <p class="mb-0 text-muted">
+                    {{ previousSuggestions.length + (currentSuggestion ? 1 : 0) }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statistics -->
+          <div class="row mb-4">
+            <div class="col-6">
+              <div class="text-center">
+                <h6 class="text-muted mb-1">Segments Processed</h6>
+                <p class="fs-4 fw-bold text-primary mb-0">{{ recordingStatus.totalSegments }}</p>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="text-center">
+                <h6 class="text-muted mb-1">Last Sent</h6>
+                <p class="fs-6 text-muted mb-0">
+                  {{ recordingStatus.lastSegmentSent ? (recordingStatus.lastSegmentSent | date:'HH:mm:ss') : 'Never' }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Messages -->
+          <div class="row">
+            <div class="col-12">
+              <!-- Success Message -->
+              <div class="alert alert-success alert-dismissible fade show" role="alert" *ngIf="successMessage">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                {{ successMessage }}
+                <button type="button" class="btn-close" (click)="successMessage = ''"></button>
+              </div>
+
+              <!-- Error Message -->
+              <div class="alert alert-danger alert-dismissible fade show" role="alert" *ngIf="errorMessage">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                {{ errorMessage }}
+                <button type="button" class="btn-close" (click)="errorMessage = ''"></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Instructions -->
+          <div class="row mt-4">
+            <div class="col-12">
+              <div class="card bg-light">
+                <div class="card-body">
+                  <h6 class="card-title">
+                    <i class="bi bi-info-circle me-2"></i>
+                    How it works
+                  </h6>
+                  <ul class="card-text mb-0">
+                    <li>Click "Start Recording" to begin capturing audio</li>
+                    <li>Audio is continuously recorded in 10-second segments</li>
+                    <li>Each segment is automatically sent to the backend</li>
+                    <li>Suggestions are generated and displayed in real-time</li>
+                    <li>Previous suggestions are stored in the accordion</li>
+                    <li>Click "Stop Recording" to end the session</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
