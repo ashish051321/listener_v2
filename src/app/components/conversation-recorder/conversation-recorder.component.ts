@@ -1,6 +1,6 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AudioRecordingService, RecordingStatus } from '../../services/audio-recording.service';
+import { AudioRecordingService, RecordingStatus, TranscriptionResult } from '../../services/audio-recording.service';
 import { SuggestionService, Suggestion } from '../../services/suggestion.service';
 import { Subscription } from 'rxjs';
 
@@ -26,9 +26,14 @@ export class ConversationRecorderComponent implements OnInit, OnDestroy {
   showPreviousSuggestions = false;
   isAutoFetchingSuggestions = false;
 
+  // Transcription properties
+  transcriptions: TranscriptionResult[] = [];
+  fullTranscript = '';
+
   private statusSubscription: Subscription | null = null;
   private suggestionSubscription: Subscription | null = null;
   private allSuggestionsSubscription: Subscription | null = null;
+  private transcriptionSubscription: Subscription | null = null;
   
   errorMessage: string = '';
   successMessage: string = '';
@@ -66,6 +71,18 @@ export class ConversationRecorderComponent implements OnInit, OnDestroy {
       }
     );
 
+    // Subscribe to transcription updates
+    this.transcriptionSubscription = this.audioRecordingService.transcription$.subscribe(
+      (transcription) => {
+        this.transcriptions.push(transcription);
+        this.fullTranscript = this.transcriptions.map(t => t.text).join(' ');
+        console.log('Transcription received:', transcription.text);
+      },
+      (error) => {
+        console.error('Error in transcription subscription:', error);
+      }
+    );
+
     // Subscribe to all suggestions updates
     this.allSuggestionsSubscription = this.suggestionService.allSuggestions$.subscribe(
       (suggestions) => {
@@ -89,7 +106,10 @@ export class ConversationRecorderComponent implements OnInit, OnDestroy {
     if (this.allSuggestionsSubscription) {
       this.allSuggestionsSubscription.unsubscribe();
     }
-    
+    if (this.transcriptionSubscription) {
+      this.transcriptionSubscription.unsubscribe();
+    }
+
     // Stop recording if active
     if (this.recordingStatus.isRecording) {
       this.stopRecording();
@@ -105,8 +125,10 @@ export class ConversationRecorderComponent implements OnInit, OnDestroy {
   async startRecording(): Promise<void> {
     try {
       this.clearMessages();
+      this.transcriptions = [];
+      this.fullTranscript = '';
       console.log('Starting conversation recording...');
-      
+
       await this.audioRecordingService.startRecording();
       console.log('Recording started in component');
       this.successMessage = 'Recording started successfully! Audio will be sent in 10-second segments.';

@@ -185,6 +185,34 @@
             </div>
           </div>
 
+          <!-- Live Transcription -->
+          <div class="row mb-4" *ngIf="fullTranscript">
+            <div class="col-12">
+              <div class="card border-info">
+                <div class="card-header bg-info text-white">
+                  <h6 class="mb-0">
+                    <i class="bi bi-chat-text-fill me-2"></i>
+                    Live Transcription
+                    <span class="badge bg-light text-info ms-2" *ngIf="recordingStatus.isRecording">
+                      <i class="bi bi-arrow-clockwise"></i> Live
+                    </span>
+                    <span class="badge bg-light text-info ms-2">
+                      {{ transcriptions.length }} segments
+                    </span>
+                  </h6>
+                </div>
+                <div class="card-body">
+                  <p class="card-text mb-2">{{ fullTranscript }}</p>
+                  <small class="text-muted" *ngIf="transcriptions.length > 0">
+                    <i class="bi bi-translate me-1"></i>
+                    Language: {{ transcriptions[transcriptions.length - 1].language }}
+                    ({{ (transcriptions[transcriptions.length - 1].language_probability * 100).toFixed(0) }}% confidence)
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Statistics -->
           <div class="row mb-4">
             <div class="col-6">

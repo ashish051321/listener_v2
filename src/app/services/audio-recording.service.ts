@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, interval, Subscription } from 'rxjs';
+import { BehaviorSubject, Subject, Observable, interval, Subscription } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 
 // Web Worker types (optional)
@@ -10,11 +10,20 @@ interface AudioSegmentMessage {
   duration: string;
 }
 
+export interface TranscriptionResult {
+  text: string;
+  segments: { start: number; end: number; text: string }[];
+  language: string;
+  language_probability: number;
+  duration: number;
+}
+
 interface WorkerResponse {
   type: 'audio_processed' | 'audio_error';
   success: boolean;
   message: string;
   timestamp: string;
+  transcription?: TranscriptionResult | null;
 }
 
 export interface RecordingStatus {
@@ -59,6 +68,10 @@ export class AudioRecordingService {
   });
   public status$: Observable<RecordingStatus> = this.statusSubject.asObservable();
 
+  // Transcription observable — emits each time a segment is transcribed
+  private transcriptionSubject = new Subject<TranscriptionResult>();
+  public transcription$: Observable<TranscriptionResult> = this.transcriptionSubject.asObservable();
+
   constructor(private http: HttpClient) {
     console.log('AudioRecordingService initialized (Option B segmented).');
     this.initializeWorker();
@@ -75,6 +88,9 @@ export class AudioRecordingService {
                  if (type === 'audio_processed' && success) {
            console.log('Worker processed segment successfully.');
            this.totalSegmentsProcessed++;
+           if (event.data.transcription) {
+             this.transcriptionSubject.next(event.data.transcription);
+           }
            this.updateStatus();
          } else if (type === 'audio_error') {
           console.error('Worker error:', message);
@@ -282,12 +298,15 @@ export class AudioRecordingService {
         formData.append('timestamp', new Date().toISOString());
         formData.append('duration', String(durationSeconds));
 
-        const response = await this.http
+        const response: any = await this.http
           .post('http://localhost:8000/api/audio/upload', formData)
           .toPromise();
 
                  console.log('Upload response:', response);
          this.totalSegmentsProcessed++;
+         if (response?.transcription) {
+           this.transcriptionSubject.next(response.transcription);
+         }
        }
 
              // Update "lastSegmentSent" timestamp

@@ -8,11 +8,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
-import random
-
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from app.transcription import transcribe_audio
 
 # Create uploads directory if it doesn't exist
 UPLOADS_DIR = Path("uploads")
@@ -33,28 +33,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global storage for suggestions
-suggestions: List[Dict] = []
-sent_suggestions: set = set()
+# Global storage for transcriptions (queued for the /next endpoint)
+transcription_queue: List[Dict] = []
+sent_transcriptions: set = set()
 
-# Dummy suggestion templates
-SUGGESTION_TEMPLATES = [
-    "Consider asking about their experience with similar projects",
-    "You might want to explore the technical challenges they've faced",
-    "Ask about their team dynamics and collaboration methods",
-    "Discuss the timeline and milestones they've set",
-    "Explore their approach to problem-solving",
-    "Ask about their communication strategies",
-    "Consider discussing resource allocation and priorities",
-    "You could explore their decision-making process",
-    "Ask about their success metrics and KPIs",
-    "Discuss their approach to risk management",
-    "Consider exploring their innovation strategies",
-    "Ask about their customer feedback mechanisms",
-    "Discuss their quality assurance processes",
-    "Explore their scalability considerations",
-    "Ask about their competitive analysis approach"
-]
+
+class TranscriptionResult(BaseModel):
+    """Transcription result from speech-to-text."""
+    text: str
+    segments: List[Dict]
+    language: str
+    language_probability: float
+    duration: float
 
 
 class AudioUploadResponse(BaseModel):
@@ -66,46 +56,17 @@ class AudioUploadResponse(BaseModel):
     file_size: int
     timestamp: str
     duration: Optional[str] = None
+    transcription: Optional[TranscriptionResult] = None
 
 
 class SuggestionResponse(BaseModel):
-    """Response model for suggestions."""
+    """Response model for the /next endpoint — returns transcribed text."""
     success: bool
     suggestion: Optional[str] = None
     timestamp: Optional[str] = None
     suggestion_id: Optional[str] = None
     message: str
-
-
-def generate_dummy_suggestions(audio_count: int) -> List[Dict]:
-    """
-    Generate dummy suggestions based on the number of audio files received.
-    
-    Args:
-        audio_count: Number of audio files received so far
-        
-    Returns:
-        List of suggestion dictionaries
-    """
-    new_suggestions = []
-    
-    # Generate 1-3 suggestions per audio file
-    num_suggestions = min(audio_count, 3)
-    
-    for i in range(num_suggestions):
-        suggestion_id = str(uuid.uuid4())
-        suggestion_text = random.choice(SUGGESTION_TEMPLATES)
-        timestamp = datetime.utcnow().isoformat()
-        
-        new_suggestions.append({
-            "id": suggestion_id,
-            "text": suggestion_text,
-            "timestamp": timestamp,
-            "audio_count": audio_count,
-            "sent": False
-        })
-    
-    return new_suggestions
+    transcription: Optional[TranscriptionResult] = None
 
 
 @app.get("/")
@@ -169,18 +130,37 @@ async def upload_audio(
         
         # Get file size
         file_size = len(content)
-        
-        # Generate dummy suggestions based on total audio files
-        total_files = len(list(UPLOADS_DIR.glob("conversation_*")))
-        new_suggestions = generate_dummy_suggestions(total_files)
-        suggestions.extend(new_suggestions)
-        
+
+        # Transcribe the audio (non-fatal if it fails)
+        transcription_data = None
+        try:
+            result = transcribe_audio(file_path)
+            transcription_data = TranscriptionResult(**result)
+            print(f"--- Transcription Result ---")
+            print(f"  Text: {transcription_data.text}")
+            print(f"  Language: {transcription_data.language} ({transcription_data.language_probability})")
+            print(f"  Duration: {transcription_data.duration}s")
+            print(f"  Segments: {len(transcription_data.segments)}")
+            for seg in transcription_data.segments:
+                print(f"    [{seg.get('start', 0):.1f}s - {seg.get('end', 0):.1f}s] {seg.get('text', '')}")
+            print(f"----------------------------")
+
+            # Queue transcription for the /next endpoint
+            transcription_queue.append({
+                "id": str(uuid.uuid4()),
+                "text": transcription_data.text,
+                "timestamp": datetime.utcnow().isoformat(),
+                "transcription": result,
+                "sent": False,
+            })
+        except Exception as e:
+            print(f"Transcription failed (non-fatal): {e}")
+
         # Log the upload
         print(f"Audio uploaded: {filename} ({file_size} bytes)")
         print(f"Timestamp: {timestamp}")
         print(f"Duration: {duration} seconds")
-        print(f"Generated {len(new_suggestions)} new suggestions")
-        
+
         return AudioUploadResponse(
             success=True,
             message="Audio file uploaded successfully",
@@ -189,6 +169,7 @@ async def upload_audio(
             file_size=file_size,
             timestamp=timestamp,
             duration=duration,
+            transcription=transcription_data,
         )
         
     except Exception as e:
@@ -234,92 +215,85 @@ async def list_audio_files():
 @app.get("/api/suggestions/next", response_model=SuggestionResponse)
 async def get_next_suggestion():
     """
-    Get the next unsent suggestion from the queue.
-    
+    Get the next unsent transcription from the queue.
+
     Returns:
-        SuggestionResponse with the next suggestion
+        SuggestionResponse with the transcribed text
     """
     try:
-        # Find the next unsent suggestion
-        for suggestion in suggestions:
-            if suggestion["id"] not in sent_suggestions:
+        # Find the next unsent transcription
+        for entry in transcription_queue:
+            if entry["id"] not in sent_transcriptions:
                 # Mark as sent
-                sent_suggestions.add(suggestion["id"])
-                suggestion["sent"] = True
-                
+                sent_transcriptions.add(entry["id"])
+                entry["sent"] = True
+
+                transcription_result = TranscriptionResult(**entry["transcription"])
+
                 return SuggestionResponse(
                     success=True,
-                    suggestion=suggestion["text"],
-                    timestamp=suggestion["timestamp"],
-                    suggestion_id=suggestion["id"],
-                    message="Suggestion retrieved successfully"
+                    suggestion=entry["text"],
+                    timestamp=entry["timestamp"],
+                    suggestion_id=entry["id"],
+                    message="Transcription retrieved successfully",
+                    transcription=transcription_result,
                 )
-        
-        # No more suggestions available
+
+        # No new transcriptions available
         return SuggestionResponse(
             success=False,
             suggestion=None,
             timestamp=None,
             suggestion_id=None,
-            message="No more suggestions available"
+            message="No new transcriptions available"
         )
-        
+
     except Exception as e:
-        print(f"Error getting next suggestion: {str(e)}")
+        print(f"Error getting next transcription: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get next suggestion: {str(e)}",
+            detail=f"Failed to get next transcription: {str(e)}",
         )
 
 
 @app.get("/api/suggestions/all")
 async def get_all_suggestions():
-    """
-    Get all suggestions (for debugging/testing purposes).
-    
-    Returns:
-        List of all suggestions with their status
-    """
+    """Get all transcriptions (for debugging/testing purposes)."""
     try:
         return {
             "success": True,
-            "suggestions": suggestions,
-            "total_suggestions": len(suggestions),
-            "sent_count": len(sent_suggestions),
-            "pending_count": len(suggestions) - len(sent_suggestions)
+            "suggestions": transcription_queue,
+            "total_suggestions": len(transcription_queue),
+            "sent_count": len(sent_transcriptions),
+            "pending_count": len(transcription_queue) - len(sent_transcriptions)
         }
-        
+
     except Exception as e:
-        print(f"Error getting all suggestions: {str(e)}")
+        print(f"Error getting all transcriptions: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to get all suggestions: {str(e)}",
+            detail=f"Failed to get all transcriptions: {str(e)}",
         )
 
 
 @app.post("/api/suggestions/reset")
 async def reset_suggestions():
-    """
-    Reset the suggestion system (for testing purposes).
-    
-    Returns:
-        Success message
-    """
+    """Reset the transcription queue (for testing purposes)."""
     try:
-        global suggestions, sent_suggestions
-        suggestions.clear()
-        sent_suggestions.clear()
-        
+        global transcription_queue, sent_transcriptions
+        transcription_queue.clear()
+        sent_transcriptions.clear()
+
         return {
             "success": True,
-            "message": "Suggestion system reset successfully"
+            "message": "Transcription queue reset successfully"
         }
-        
+
     except Exception as e:
-        print(f"Error resetting suggestions: {str(e)}")
+        print(f"Error resetting transcriptions: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to reset suggestions: {str(e)}",
+            detail=f"Failed to reset transcriptions: {str(e)}",
         )
 
 

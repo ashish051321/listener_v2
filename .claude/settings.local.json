@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx ng:*)",
+      "Bash(poetry run:*)",
+      "Bash(poetry add:*)"
+    ]
+  }
+}

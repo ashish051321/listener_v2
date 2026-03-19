@@ -10,11 +10,20 @@ interface AudioSegmentMessage {
   duration: string;
 }
 
+interface TranscriptionResult {
+  text: string;
+  segments: { start: number; end: number; text: string }[];
+  language: string;
+  language_probability: number;
+  duration: number;
+}
+
 interface WorkerResponse {
   type: 'audio_processed' | 'audio_error';
   success: boolean;
   message: string;
   timestamp: string;
+  transcription?: TranscriptionResult | null;
 }
 
 // Listen for messages from the main thread
@@ -45,7 +54,8 @@ self.addEventListener('message', async (event: MessageEvent<AudioSegmentMessage>
           type: 'audio_processed',
           success: true,
           message: 'Audio chunk sent successfully',
-          timestamp: timestamp
+          timestamp: timestamp,
+          transcription: result.transcription || null
         };
         
         self.postMessage(workerResponse);
